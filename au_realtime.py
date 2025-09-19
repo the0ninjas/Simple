@@ -3,7 +3,9 @@ import time
 import os
 import tempfile
 from pathlib import Path
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict, Any
+import json
+from datetime import datetime
 
 import cv2
 import numpy as np
@@ -22,6 +24,8 @@ LOAD_LANDMARKS = True     # attempt to load & draw facial landmarks if model pre
 WINDOW_NAME = "OpenFace-3.0 AU Demo"
 DRAW_GAZE = False         # whether to draw gaze overlay text
 EXCLUDED_AUS = {3}        # AU numbers to hide from display
+LOG_STREAM = True         # write per-frame data to NDJSON log file
+LOG_PATH = Path(__file__).resolve().parent / "stream_log.ndjson"
 
 # ---------------- Utility ----------------
 
@@ -147,6 +151,31 @@ def draw_au_bars(image: np.ndarray, au_values: np.ndarray, origin_xy: Tuple[int,
 
 # ---------------- Main ----------------
 
+class StreamLogger:
+    def __init__(self, file_path: Path):
+        self.file_path = file_path
+        # Ensure parent dir exists
+        try:
+            self.file_path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        # Open in append mode for streaming logs
+        self._fh = open(self.file_path, "a", encoding="utf-8")
+
+    def write(self, entry: Dict[str, Any]) -> None:
+        try:
+            json.dump(entry, self._fh, ensure_ascii=False)
+            self._fh.write("\n")
+            self._fh.flush()
+        except Exception:
+            pass
+
+    def close(self) -> None:
+        try:
+            self._fh.close()
+        except Exception:
+            pass
+
 def resolve_required_weights() -> Tuple[Path, Path]:
     """Resolve required weight paths with fallbacks.
 
@@ -246,6 +275,8 @@ def main() -> None:
         multitask_model = MultitaskPredictor(model_path=str(mtl_model_path), device=DEVICE)
 
     last_infer_ms = 0.0
+    frame_idx = 0
+    logger = StreamLogger(LOG_PATH) if LOG_STREAM else None
 
     try:
         while True:
@@ -346,10 +377,49 @@ def main() -> None:
                 # If not drawing, still allow quit with 'q'
                 if cv2.waitKey(1) & 0xFF in (ord('q'), 27):
                     break
+            # Stream logging (NDJSON)
+            if logger is not None:
+                try:
+                    entry: Dict[str, Any] = {
+                        "ts": time.time(),
+                        "ts_iso": datetime.utcnow().isoformat(timespec="milliseconds") + "Z",
+                        "frame": frame_idx,
+                        "infer_ms": last_infer_ms,
+                        "emotion": emotion_label,
+                        "gaze": None,
+                        "bbox": None,
+                        "aus": None,
+                        "landmarks": None,
+                    }
+                    if gaze_yaw is not None and gaze_pitch is not None:
+                        entry["gaze"] = {"yaw": float(gaze_yaw), "pitch": float(gaze_pitch)}
+                    if bbox is not None and len(bbox) == 4:
+                        entry["bbox"] = [int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])]
+                    if au_values is not None:
+                        try:
+                            au_list = [float(x) for x in np.asarray(au_values).reshape(-1).tolist()]
+                        except Exception:
+                            au_list = None
+                        entry["aus"] = {
+                            "index_to_num": AU_INDEX_TO_NUM,
+                            "values": au_list,
+                        }
+                    if landmarks_first is not None:
+                        try:
+                            lm = landmarks_first.astype(int).tolist()
+                            entry["landmarks"] = lm
+                        except Exception:
+                            pass
+                    logger.write(entry)
+                except Exception:
+                    pass
+            frame_idx += 1
     finally:
         cap.release()
         if DRAW_OVERLAYS:
             cv2.destroyAllWindows()
+        if logger is not None:
+            logger.close()
 
 if __name__ == "__main__":
     main()
