@@ -17,9 +17,11 @@ DEVICE = "cpu"          # set to "cuda" if you have a GPU + torch with CUDA
 CAMERA_INDEX = 0          # default webcam index
 FRAME_SCALE = 1.0         # resize factor applied to incoming frames
 DRAW_OVERLAYS = True      # draw visualization (bbox, AUs, emotion, gaze, landmarks)
-MAX_AU_VIS = 12           # max AU bars to show
+MAX_AU_VIS = 25           # max AU bars to show
 LOAD_LANDMARKS = True     # attempt to load & draw facial landmarks if model present
 WINDOW_NAME = "OpenFace-3.0 AU Demo"
+DRAW_GAZE = False         # whether to draw gaze overlay text
+EXCLUDED_AUS = {3}        # AU numbers to hide from display
 
 # ---------------- Utility ----------------
 
@@ -55,6 +57,36 @@ def temp_cwd(path: Path):
 
 EMOTION_LABELS = ["Neutral", "Happy", "Sad", "Surprise", "Fear", "Disgust", "Anger", "Contempt"]
 
+# AU number to name mapping
+AU_NAMES = {
+    1: "Inner Brow Raiser",
+    2: "Outer Brow Raiser", 
+    4: "Brow Lowerer",
+    5: "Upper Lid Raiser",
+    6: "Cheek Raiser",
+    7: "Lid Tightener",
+    8: "Lips Toward Each Other",  # AU08
+    9: "Nose Wrinkler",
+    10: "Upper Lip Raiser",
+    12: "Lip Corner Puller (Smile)",
+    14: "Dimpler",
+    15: "Lip Corner Depressor",
+    17: "Chin Raiser",
+    20: "Lip Stretcher",
+    23: "Lip Tightener",
+    24: "Lip Pressor",
+    25: "Lips Part",
+    26: "Jaw Drop",
+    28: "Lip Suck",
+    45: "Blink (Eye Closure)"
+}
+
+# Display all available AUs (will be determined dynamically)
+DISPLAY_ALL_AUS = True
+
+# Fallback list for when DISPLAY_ALL_AUS is False
+DISPLAY_AUS = [2, 5, 6]
+
 # ---------------- Visualization ----------------
 
 def draw_au_bars(image: np.ndarray, au_values: np.ndarray, origin_xy: Tuple[int, int] = (10, 30), max_count: int = 12) -> None:
@@ -62,15 +94,48 @@ def draw_au_bars(image: np.ndarray, au_values: np.ndarray, origin_xy: Tuple[int,
     bar_height = 16
     gap = 6
     x0, y0 = origin_xy
-    shown = int(min(max_count, len(au_values)))
-    for idx in range(shown):
-        value = au_values[idx]
-        clamped = float(np.clip(value, 0.0, 1.0))
-        w = int(clamped * max_width)
-        y = y0 + idx * (bar_height + gap)
-        cv2.rectangle(image, (x0, y), (x0 + max_width, y + bar_height), (50, 50, 50), 1)
-        cv2.rectangle(image, (x0, y), (x0 + w, y + bar_height), (0, 200, 0), -1)
-        cv2.putText(image, f"AU{idx+1}: {clamped:.2f}", (x0 + max_width + 8, y + bar_height - 3), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+    
+    if DISPLAY_ALL_AUS:
+        # Display all available AUs
+        displayed_count = 0
+        for au_num in range(1, len(au_values) + 1):  # AU numbers are 1-indexed
+            if au_num in EXCLUDED_AUS:
+                continue
+            if displayed_count >= max_count:
+                break
+                
+            value = au_values[au_num - 1]  # Convert to 0-indexed array access
+            clamped = float(np.clip(value, 0.0, 1.0))
+            w = int(clamped * max_width)
+            y = y0 + displayed_count * (bar_height + gap)
+            
+            # Draw the bar background and fill
+            cv2.rectangle(image, (x0, y), (x0 + max_width, y + bar_height), (50, 50, 50), 1)
+            cv2.rectangle(image, (x0, y), (x0 + w, y + bar_height), (0, 200, 0), -1)
+            
+            # Display AU number, name, and value
+            mapped = AU_NAMES.get(au_num)
+            label = f"AU{au_num:02d} {mapped}" if mapped else f"AU{au_num:02d}"
+            text = f"{label}: {clamped:.2f}"
+            cv2.putText(image, text, (x0 + max_width + 8, y + bar_height - 3), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
+            displayed_count += 1
+    else:
+        # Original behavior: display only specific AUs
+        filtered = [n for n in DISPLAY_AUS if n not in EXCLUDED_AUS]
+        for idx, au_num in enumerate(filtered):
+            if au_num > 0 and au_num <= len(au_values):
+                value = au_values[au_num - 1]
+                clamped = float(np.clip(value, 0.0, 1.0))
+                w = int(clamped * max_width)
+                y = y0 + idx * (bar_height + gap)
+                
+                cv2.rectangle(image, (x0, y), (x0 + max_width, y + bar_height), (50, 50, 50), 1)
+                cv2.rectangle(image, (x0, y), (x0 + w, y + bar_height), (0, 200, 0), -1)
+                
+                mapped = AU_NAMES.get(au_num)
+                label = f"AU{au_num:02d} {mapped}" if mapped else f"AU{au_num:02d}"
+                text = f"{label}: {clamped:.2f}"
+                cv2.putText(image, text, (x0 + max_width + 8, y + bar_height - 3), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
 
 # ---------------- Main ----------------
 
@@ -250,17 +315,18 @@ def main() -> None:
                 if bbox is not None and len(bbox) == 4:
                     x1, y1, x2, y2 = map(int, bbox)
                     cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 255, 255), 2)
-                if au_values is not None:
-                    draw_au_bars(vis, au_values, max_count=MAX_AU_VIS)
                 y_text = 20
                 cv2.putText(vis, f"Infer: {last_infer_ms:.1f} ms", (10, y_text), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1, cv2.LINE_AA)
                 y_text += 20
                 if emotion_label is not None:
                     cv2.putText(vis, f"Emotion: {emotion_label}", (10, y_text), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 200, 255), 1, cv2.LINE_AA)
                     y_text += 20
-                if gaze_yaw is not None and gaze_pitch is not None:
+                if DRAW_GAZE and (gaze_yaw is not None and gaze_pitch is not None):
                     cv2.putText(vis, f"Gaze Y/P: {gaze_yaw:.1f}/{gaze_pitch:.1f}", (10, y_text), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 0), 1, cv2.LINE_AA)
                     y_text += 20
+                if au_values is not None:
+                    # Draw AU bars just below the emotion (or infer) text block
+                    draw_au_bars(vis, au_values, origin_xy=(10, y_text + 10), max_count=MAX_AU_VIS)
                 if landmarks_first is not None:
                     for (lx, ly) in landmarks_first.astype(int):
                         cv2.circle(vis, (int(lx), int(ly)), 1, (0, 0, 255), -1)
