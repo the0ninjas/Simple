@@ -20,11 +20,12 @@ CAMERA_INDEX = 0          # default webcam index
 FRAME_SCALE = 1.0         # resize factor applied to incoming frames
 DRAW_OVERLAYS = True      # draw visualization (bbox, AUs, emotion, gaze, landmarks)
 MAX_AU_VIS = 25           # max AU bars to show
-MAX_AU_VIS = 25           # max AU bars to show
 LOAD_LANDMARKS = True     # attempt to load & draw facial landmarks if model present
 WINDOW_NAME = "OpenFace-3.0 AU Demo"
 DRAW_GAZE = False         # whether to draw gaze overlay text
 EXCLUDED_AUS = {3}        # AU numbers to hide from display
+LOG_STREAM = False        # whether to log stream data to file
+LOG_PATH = Path(__file__).parent / "logs" / f"webcam_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl"
 
 # ---------------- Utility ----------------
 
@@ -89,6 +90,9 @@ DISPLAY_ALL_AUS = True
 
 # Fallback list for when DISPLAY_ALL_AUS is False
 DISPLAY_AUS = [2, 5, 6]
+
+# AU index to AU number mapping (1-indexed AU numbers corresponding to model output indices)
+AU_INDEX_TO_NUM = list(range(1, 46))  # AU 1-45
 
 # ---------------- Visualization ----------------
 
@@ -352,12 +356,8 @@ def main() -> None:
                     cv2.putText(vis, f"Emotion: {emotion_label}", (10, y_text), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 200, 255), 1, cv2.LINE_AA)
                     y_text += 20
                 if DRAW_GAZE and (gaze_yaw is not None and gaze_pitch is not None):
-                if DRAW_GAZE and (gaze_yaw is not None and gaze_pitch is not None):
                     cv2.putText(vis, f"Gaze Y/P: {gaze_yaw:.1f}/{gaze_pitch:.1f}", (10, y_text), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 0), 1, cv2.LINE_AA)
                     y_text += 20
-                if au_values is not None:
-                    # Draw AU bars just below the emotion (or infer) text block
-                    draw_au_bars(vis, au_values, origin_xy=(10, y_text + 10), max_count=MAX_AU_VIS)
                 if au_values is not None:
                     # Draw AU bars just below the emotion (or infer) text block
                     draw_au_bars(vis, au_values, origin_xy=(10, y_text + 10), max_count=MAX_AU_VIS)
