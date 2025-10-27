@@ -1,36 +1,33 @@
-#!/usr/bin/env python3
-"""Debug script to check openface installation."""
-import sys
-
-print(f"Python executable: {sys.executable}")
-print(f"Python version: {sys.version}")
-print("\nTrying to import openface...")
-
-try:
-    import openface
-    print("✓ Successfully imported openface")
-    print(f"✓ openface module location: {openface.__file__}")
-    print(f"✓ openface package: {openface.__package__}")
-    print(f"✓ openface.__version__: {getattr(openface, '__version__', 'N/A')}")
-    
-    # Try importing the specific modules
+def ensure_openface_import(openface_root: Path) -> None:
+    """Ensure the openface module can be imported."""
+    # First try direct import
     try:
-        from openface.face_detection import FaceDetector
-        print("✓ Successfully imported FaceDetector")
-    except Exception as e:
-        print(f"✗ Failed to import FaceDetector: {e}")
+        import openface
+        return
+    except ImportError as e:
+        print(f"Direct import failed: {e}")
+        print(f"sys.path entries: {sys.path[:5]}")  # Debug info
     
+    # Try adding OpenFace-3.0 directory to path
+    openface_str = str(openface_root)
+    if openface_str not in sys.path:
+        sys.path.insert(0, openface_str)
+        print(f"Added to sys.path: {openface_str}")
+    
+    # Try import again
     try:
-        from openface.multitask_model import MultitaskPredictor
-        print("✓ Successfully imported MultitaskPredictor")
-    except Exception as e:
-        print(f"✗ Failed to import MultitaskPredictor: {e}")
-        
-except ImportError as e:
-    print(f"✗ Failed to import openface: {e}")
-    print("\nTroubleshooting:")
-    print(f"1. Check if openface-test is installed: pip list | grep openface-test")
-    print(f"2. Check Python path: {sys.path}")
-    sys.exit(1)
-
-print("\n✓ All imports successful!")
+        import openface
+        print("Successfully imported openface after adding to path")
+    except ImportError as e:
+        raise ImportError(
+            f"Failed to import 'openface' module.\n\n"
+            f"Python version: {sys.version_info}\n"
+            f"Python executable: {sys.executable}\n"
+            f"Attempted paths:\n"
+            f"  - Direct import\n"
+            f"  - {openface_str}\n\n"
+            f"Make sure 'openface-test' is installed:\n"
+            f"  pip install openface-test\n"
+            f"  openface download\n\n"
+            f"Original error: {e}"
+        ) from e
